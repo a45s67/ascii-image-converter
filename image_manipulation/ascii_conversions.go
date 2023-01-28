@@ -167,6 +167,80 @@ func ConvertToAsciiChars(imgSet [][]AsciiPixel, negative, colored, grayscale, co
 	return result, nil
 }
 
+func getRGB(pixel AsciiPixel, negative, colored bool) (int, int, int) {
+	var r, g, b int
+
+	if colored {
+		r = int(pixel.rgbValue[0])
+		g = int(pixel.rgbValue[1])
+		b = int(pixel.rgbValue[2])
+	} else {
+		r = int(pixel.grayscaleValue[0])
+		g = int(pixel.grayscaleValue[1])
+		b = int(pixel.grayscaleValue[2])
+	}
+
+	if negative {
+		// Select character from opposite side of table as well as turn pixels negative
+		r = 255 - r
+		g = 255 - g
+		b = 255 - b
+
+		// To preserve negative rgb values for saving png image later down the line, since it uses imgSet
+		if colored {
+			pixel.rgbValue = [3]uint32{uint32(r), uint32(g), uint32(b)}
+		} else {
+			pixel.grayscaleValue = [3]uint32{uint32(r), uint32(g), uint32(b)}
+		}
+	}
+	return r, g, b
+}
+
+func ConvertToHalfBlockChars(imgSet [][]AsciiPixel, negative, colored, grayscale bool) ([][]AsciiChar, error) {
+
+	halfBlock := "▀"
+	height := len(imgSet)
+	width := len(imgSet[0])
+
+	var result [][]AsciiChar
+
+	for i := 0; i < height/2; i++ {
+
+		var tempSlice []AsciiChar
+
+		for j := 0; j < width; j++ {
+
+			upper_r, upper_g, upper_b := getRGB(imgSet[2*i][j], negative, colored)
+			lower_r, lower_g, lower_b := 255, 255, 255
+			if 2*i+1 < height {
+				lower_r, lower_g, lower_b = getRGB(imgSet[2*i+1][j], negative, colored)
+			}
+
+			var char AsciiChar
+			char.Simple = halfBlock
+
+			var err error
+			char.OriginalColor, err = getColoredCharForTerm(uint8(upper_r), uint8(upper_g), uint8(upper_b), halfBlock, false)
+			char.OriginalColor, err = getColoredCharForTerm(uint8(lower_r), uint8(lower_g), uint8(lower_b), char.OriginalColor, true)
+
+			if (colored || grayscale) && err != nil {
+				return nil, err
+			}
+
+			if colored {
+				char.RgbValue = imgSet[i][j].rgbValue
+			} else {
+				char.RgbValue = imgSet[i][j].grayscaleValue
+			}
+
+			tempSlice = append(tempSlice, char)
+		}
+		result = append(result, tempSlice)
+	}
+
+	return result, nil
+}
+
 /*
 Converts the 2D image_conversions.AsciiPixel slice of image data (each instance representing each compressed pixel of original image)
 to a 2D image_conversions.AsciiChar slice
