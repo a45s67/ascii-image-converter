@@ -207,7 +207,12 @@ func ConvertToHalfBlockChars(imgSet [][]AsciiPixel, negative, colored, grayscale
 	for i := 0; i < height/2; i++ {
 
 		var tempSlice []AsciiChar
+		var (
+			last_upper_r, last_upper_g, last_upper_b int = -1, -1, -1
+			last_lower_r, last_lower_g, last_lower_b int = -1, -1, -1
+		)
 
+		var sameColorChars AsciiChar
 		for j := 0; j < width; j++ {
 
 			upper_r, upper_g, upper_b := getRGB(imgSet[2*i][j], negative, colored)
@@ -215,25 +220,40 @@ func ConvertToHalfBlockChars(imgSet [][]AsciiPixel, negative, colored, grayscale
 			if 2*i+1 < height {
 				lower_r, lower_g, lower_b = getRGB(imgSet[2*i+1][j], negative, colored)
 			}
+			sameColorChars.Simple += halfBlock
+			if upper_b == last_upper_b &&
+				upper_g == last_upper_g &&
+				upper_r == last_upper_r &&
+				lower_b == last_lower_b &&
+				lower_g == last_lower_g &&
+				lower_r == last_lower_r &&
+				j < width {
 
-			var char AsciiChar
-			char.Simple = halfBlock
+				continue
+			}
 
-			var err error
-			char.OriginalColor, err = getColoredCharForTerm(uint8(upper_r), uint8(upper_g), uint8(upper_b), halfBlock, false)
-			char.OriginalColor, err = getColoredCharForTerm(uint8(lower_r), uint8(lower_g), uint8(lower_b), char.OriginalColor, true)
-
+			charFg, err := getColoredCharForTerm(uint8(upper_r), uint8(upper_g), uint8(upper_b), sameColorChars.Simple, false)
+			charFgAndBg, err := getColoredCharForTerm(uint8(lower_r), uint8(lower_g), uint8(lower_b), charFg, true)
 			if (colored || grayscale) && err != nil {
 				return nil, err
 			}
 
+			sameColorChars.OriginalColor = charFgAndBg
 			if colored {
-				char.RgbValue = imgSet[i][j].rgbValue
+				sameColorChars.RgbValue = imgSet[i][j].rgbValue
 			} else {
-				char.RgbValue = imgSet[i][j].grayscaleValue
+				sameColorChars.RgbValue = imgSet[i][j].grayscaleValue
 			}
 
-			tempSlice = append(tempSlice, char)
+			tempSlice = append(tempSlice, sameColorChars)
+
+			sameColorChars.Simple = ""
+			last_upper_b = upper_b
+			last_upper_g = upper_g
+			last_upper_r = upper_r
+			last_lower_b = lower_b
+			last_lower_g = lower_g
+			last_lower_r = lower_r
 		}
 		result = append(result, tempSlice)
 	}
@@ -260,44 +280,29 @@ func ConvertToBrailleChars(imgSet [][]AsciiPixel, negative, colored, grayscale, 
 
 		var tempSlice []AsciiChar
 
+		var (
+			last_r, last_g, last_b int = -1, -1, -1
+		)
+		var char AsciiChar
+
 		for j := 0; j < width; j += 2 {
 
 			brailleChar := getBrailleChar(i, j, negative, imgSet)
+			r, g, b := getRGB(imgSet[i][j], negative, colored)
+			char.Simple += brailleChar
 
-			var r, g, b int
-
-			if colored {
-				r = int(imgSet[i][j].rgbValue[0])
-				g = int(imgSet[i][j].rgbValue[1])
-				b = int(imgSet[i][j].rgbValue[2])
-			} else {
-				r = int(imgSet[i][j].grayscaleValue[0])
-				g = int(imgSet[i][j].grayscaleValue[1])
-				b = int(imgSet[i][j].grayscaleValue[2])
+			if last_b == b &&
+				last_r == r &&
+				last_g == g &&
+				j+2 < width {
+				continue
 			}
-
-			if negative {
-				// Select character from opposite side of table as well as turn pixels negative
-				r = 255 - r
-				g = 255 - g
-				b = 255 - b
-
-				if colored {
-					imgSet[i][j].rgbValue = [3]uint32{uint32(r), uint32(g), uint32(b)}
-				} else {
-					imgSet[i][j].grayscaleValue = [3]uint32{uint32(r), uint32(g), uint32(b)}
-				}
-			}
-
-			var char AsciiChar
-
-			char.Simple = brailleChar
 
 			var err error
 			if colorBg {
-				char.OriginalColor, err = getColoredCharForTerm(uint8(r), uint8(g), uint8(b), brailleChar, true)
+				char.OriginalColor, err = getColoredCharForTerm(uint8(r), uint8(g), uint8(b), char.Simple, true)
 			} else {
-				char.OriginalColor, err = getColoredCharForTerm(uint8(r), uint8(g), uint8(b), brailleChar, false)
+				char.OriginalColor, err = getColoredCharForTerm(uint8(r), uint8(g), uint8(b), char.Simple, false)
 			}
 			if (colored || grayscale) && err != nil {
 				return nil, err
@@ -310,9 +315,9 @@ func ConvertToBrailleChars(imgSet [][]AsciiPixel, negative, colored, grayscale, 
 				fcB := fontColor[2]
 
 				if colorBg {
-					char.SetColor, err = getColoredCharForTerm(uint8(fcR), uint8(fcG), uint8(fcB), brailleChar, true)
+					char.SetColor, err = getColoredCharForTerm(uint8(fcR), uint8(fcG), uint8(fcB), char.Simple, true)
 				} else {
-					char.SetColor, err = getColoredCharForTerm(uint8(fcR), uint8(fcG), uint8(fcB), brailleChar, false)
+					char.SetColor, err = getColoredCharForTerm(uint8(fcR), uint8(fcG), uint8(fcB), char.Simple, false)
 				}
 				if err != nil {
 					return nil, err
@@ -326,6 +331,8 @@ func ConvertToBrailleChars(imgSet [][]AsciiPixel, negative, colored, grayscale, 
 			}
 
 			tempSlice = append(tempSlice, char)
+			last_r, last_g, last_b = r, g, b
+			char.Simple = ""
 		}
 
 		result = append(result, tempSlice)
